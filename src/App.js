@@ -42,6 +42,10 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [showStatistics, setShowStatistics] = useState(false);
   
+  // Состояния для редактирования
+  const [editingExpense, setEditingExpense] = useState(null);
+  const [editingCategory, setEditingCategory] = useState(null);
+  
   const toast = useToast();
   
   const {
@@ -146,24 +150,46 @@ function App() {
     }
   };
 
-  const handleCategoryCreate = async (categoryData) => {
+  // Функции редактирования и создания категорий
+  const handleCategoryEdit = (category) => {
+    setEditingCategory(category);
+    onCategoryFormOpen();
+  };
+
+  const handleCategorySubmit = async (categoryData) => {
     try {
-      const response = await axios.post(`${API_URL}/categories`, categoryData);
-      if (response.data.status === 'success') {
-        toast({
-          title: 'Категория создана',
-          status: 'success',
-          duration: 3000,
-          isClosable: true,
-        });
-        fetchData();
-        onCategoryFormClose();
+      if (categoryData.id) {
+        // Редактирование существующей категории
+        const response = await axios.put(`${API_URL}/categories/${categoryData.id}`, categoryData);
+        if (response.data.status === 'success') {
+          toast({
+            title: 'Категория обновлена',
+            status: 'success',
+            duration: 3000,
+            isClosable: true,
+          });
+          fetchData();
+          handleCategoryFormClose();
+        }
+      } else {
+        // Создание новой категории
+        const response = await axios.post(`${API_URL}/categories`, categoryData);
+        if (response.data.status === 'success') {
+          toast({
+            title: 'Категория создана',
+            status: 'success',
+            duration: 3000,
+            isClosable: true,
+          });
+          fetchData();
+          handleCategoryFormClose();
+        }
       }
     } catch (error) {
-      console.error('Error creating category:', error);
+      console.error('Error submitting category:', error);
       toast({
         title: 'Ошибка',
-        description: 'Не удалось создать категорию',
+        description: 'Не удалось сохранить категорию',
         status: 'error',
         duration: 3000,
         isClosable: true,
@@ -171,29 +197,9 @@ function App() {
     }
   };
 
-  const handleCategoryUpdate = async (categoryData) => {
-    try {
-      const response = await axios.put(`${API_URL}/categories/${categoryData.id}`, categoryData);
-      if (response.data.status === 'success') {
-        toast({
-          title: 'Категория обновлена',
-          status: 'success',
-          duration: 3000,
-          isClosable: true,
-        });
-        fetchData();
-        onCategoryFormClose();
-      }
-    } catch (error) {
-      console.error('Error updating category:', error);
-      toast({
-        title: 'Ошибка',
-        description: 'Не удалось обновить категорию',
-        status: 'error',
-        duration: 3000,
-        isClosable: true,
-      });
-    }
+  const handleCategoryFormClose = () => {
+    setEditingCategory(null);
+    onCategoryFormClose();
   };
 
   const handleCategoryDelete = async (categoryId) => {
@@ -222,38 +228,60 @@ function App() {
     }
   };
 
-  const handleExpenseCreate = async (expenseData) => {
-    if (!selectedCategory) {
-      toast({
-        title: 'Ошибка',
-        description: 'Сначала выберите категорию',
-        status: 'error',
-        duration: 3000,
-        isClosable: true,
-      });
-      return;
-    }
-    
+  // Функции редактирования и создания расходов
+  const handleExpenseEdit = (expense) => {
+    setEditingExpense(expense);
+    onExpenseFormOpen();
+  };
+
+  const handleExpenseSubmit = async (expenseData) => {
     try {
-      const response = await axios.post(`${API_URL}/expenses`, {
-        ...expenseData,
-        categoryId: selectedCategory.id
-      });
-      if (response.data.status === 'success') {
-        toast({
-          title: 'Расход добавлен',
-          status: 'success',
-          duration: 3000,
-          isClosable: true,
+      if (expenseData.id) {
+        // Редактирование существующего расхода
+        const response = await axios.put(`${API_URL}/expenses/${expenseData.id}`, expenseData);
+        if (response.data.status === 'success') {
+          toast({
+            title: 'Расход обновлен',
+            status: 'success',
+            duration: 3000,
+            isClosable: true,
+          });
+          fetchData();
+          handleExpenseFormClose();
+        }
+      } else {
+        // Создание нового расхода
+        if (!selectedCategory) {
+          toast({
+            title: 'Ошибка',
+            description: 'Сначала выберите категорию',
+            status: 'error',
+            duration: 3000,
+            isClosable: true,
+          });
+          return;
+        }
+        
+        const response = await axios.post(`${API_URL}/expenses`, {
+          ...expenseData,
+          categoryId: selectedCategory.id
         });
-        fetchData();
-        onExpenseFormClose();
+        if (response.data.status === 'success') {
+          toast({
+            title: 'Расход добавлен',
+            status: 'success',
+            duration: 3000,
+            isClosable: true,
+          });
+          fetchData();
+          handleExpenseFormClose();
+        }
       }
     } catch (error) {
-      console.error('Error creating expense:', error);
+      console.error('Error submitting expense:', error);
       toast({
         title: 'Ошибка',
-        description: 'Не удалось добавить расход',
+        description: 'Не удалось сохранить расход',
         status: 'error',
         duration: 3000,
         isClosable: true,
@@ -261,29 +289,9 @@ function App() {
     }
   };
 
-  const handleExpenseUpdate = async (expenseData) => {
-    try {
-      const response = await axios.put(`${API_URL}/expenses/${expenseData.id}`, expenseData);
-      if (response.data.status === 'success') {
-        toast({
-          title: 'Расход обновлен',
-          status: 'success',
-          duration: 3000,
-          isClosable: true,
-        });
-        fetchData();
-        onExpenseFormClose();
-      }
-    } catch (error) {
-      console.error('Error updating expense:', error);
-      toast({
-        title: 'Ошибка',
-        description: 'Не удалось обновить расход',
-        status: 'error',
-        duration: 3000,
-        isClosable: true,
-      });
-    }
+  const handleExpenseFormClose = () => {
+    setEditingExpense(null);
+    onExpenseFormClose();
   };
 
   const handleExpenseDelete = async (expenseId) => {
@@ -323,7 +331,7 @@ function App() {
     <ChakraProvider theme={theme}>
       <Router>
         <Box className="app-gradient-bg">
-          <Box as="header" py={4} backdropFilter="blur(10px)" bg="rgba(255, 255, 255, 0.1)" shadow="md">
+          <Box as="header" py={4} backdropFilter="blur(10px)" bg="rgba(255, 255, 255, 0)" shadow="md">
             <Container maxW="container.xl">
               <Flex justifyContent="space-between" alignItems="center">
                 <Link to="/">
@@ -345,7 +353,10 @@ function App() {
                     leftIcon={<AddIcon />} 
                     variant="outline" 
                     colorScheme="whiteAlpha" 
-                    onClick={onCategoryFormOpen}
+                    onClick={() => {
+                      setEditingCategory(null); // Сбрасываем состояние редактирования
+                      onCategoryFormOpen();
+                    }}
                     _hover={{ bg: 'whiteAlpha.200' }}
                   >
                     Новая категория
@@ -381,9 +392,8 @@ function App() {
                       <Box
                         w={{ base: "100%", md: "60%" }}
                         h="140px"
-                        bg="white"
+                        bg="#0D1421"
                         borderRadius="lg"
-                        transform="perspective(800px) rotateY(-15deg) rotateX(5deg)"
                         boxShadow="lg"
                         p={4}
                         position="relative"
@@ -391,8 +401,8 @@ function App() {
                       >
                         <Flex justify="space-between" align="center" mb={4}>
                           <Box>
-                            <Text fontSize="xs" color="gray.500">Финансовый помощник</Text>
-                            <Text fontWeight="bold">Ваш бюджет</Text>
+                            <Text fontSize="xs" color="#FFFFFF">Финансовый помощник</Text>
+                            <Text fontWeight="bold" color="#FFFFFF">Ваш бюджет</Text>
                           </Box>
                           <StarIcon color="brand.500" />
                         </Flex>
@@ -461,9 +471,7 @@ function App() {
                             variant="ghost"
                             color="white"
                             _hover={{ bg: 'whiteAlpha.200' }}
-                            onClick={() => {
-                              onCategoryFormOpen();
-                            }}
+                            onClick={() => handleCategoryEdit(selectedCategory)}
                           />
                           <IconButton
                             icon={<DeleteIcon />}
@@ -476,64 +484,63 @@ function App() {
                             onClick={() => {
                               if (window.confirm('Вы уверены, что хотите удалить эту категорию?')) {
                                 handleCategoryDelete(selectedCategory.id);
-                              }
-                            }}
-                          />
-                          <Button
-                            leftIcon={<AddIcon />}
-                            variant="outline"
-                            colorScheme="whiteAlpha"
-                            size="sm"
-                            _hover={{ bg: 'whiteAlpha.200' }}
-                            onClick={onExpenseFormOpen}
-                          >
-                            Добавить расход
-                          </Button>
-                        </Flex>
-                      </Flex>
-                      <ExpenseList
-                        expenses={expenses}
-                        onDelete={handleExpenseDelete}
-                        onEdit={(expense) => {
-                          onExpenseFormOpen();
+                            }
                         }}
                       />
-                    </Box>
-                  ) : (
-                    <CategoryList
-                      categories={categories}
-                      onSelect={handleCategorySelect}
-                      onDelete={handleCategoryDelete}
-                      onEdit={(category) => {
-                        setSelectedCategory(category);
-                        onCategoryFormOpen();
-                      }}
-                    />
-                  )}
-                </>
+                      <Button
+                        leftIcon={<AddIcon />}
+                        variant="outline"
+                        colorScheme="whiteAlpha"
+                        size="sm"
+                        _hover={{ bg: 'whiteAlpha.200' }}
+                        onClick={() => {
+                          setEditingExpense(null); // Сбрасываем состояние редактирования
+                          onExpenseFormOpen();
+                        }}
+                      >
+                        Добавить расход
+                      </Button>
+                    </Flex>
+                  </Flex>
+                  <ExpenseList
+                    expenses={expenses}
+                    onDelete={handleExpenseDelete}
+                    onEdit={handleExpenseEdit}
+                  />
+                </Box>
+              ) : (
+                <CategoryList
+                  categories={categories}
+                  onSelect={handleCategorySelect}
+                  onDelete={handleCategoryDelete}
+                  onEdit={handleCategoryEdit}
+                />
               )}
-            </Container>
-          </Box>
+            </>
+          )}
+        </Container>
+      </Box>
 
-          {/* Форма категории */}
-          <CategoryForm
-            isOpen={isCategoryFormOpen}
-            onClose={onCategoryFormClose}
-            onSubmit={selectedCategory ? handleCategoryUpdate : handleCategoryCreate}
-            initialData={selectedCategory}
-          />
+      {/* Форма категории */}
+      <CategoryForm
+        isOpen={isCategoryFormOpen}
+        onClose={handleCategoryFormClose}
+        onSubmit={handleCategorySubmit}
+        initialData={editingCategory}
+      />
 
-          {/* Форма расхода */}
-          <ExpenseForm
-            isOpen={isExpenseFormOpen}
-            onClose={onExpenseFormClose}
-            onSubmit={handleExpenseCreate}
-            categoryName={selectedCategory?.name}
-          />
-        </Box>
-      </Router>
-    </ChakraProvider>
-  );
+      {/* Форма расхода */}
+      <ExpenseForm
+        isOpen={isExpenseFormOpen}
+        onClose={handleExpenseFormClose}
+        onSubmit={handleExpenseSubmit}
+        initialData={editingExpense}
+        categoryName={selectedCategory?.name}
+      />
+    </Box>
+  </Router>
+</ChakraProvider>
+);
 }
 
 export default App;

@@ -25,7 +25,7 @@ const ExpenseList = ({ expenses, onDelete, onEdit }) => {
   };
 
   return (
-    <Box overflow="auto" bg="rgba(255, 255, 255, 0.1)" backdropFilter="blur(5px)">
+    <Box overflow="auto" bg="rgba(255, 0, 0, 0)" backdropFilter="blur(5px)">
       {expenses.length === 0 ? (
         <Box p={6} textAlign="center">
           <Text color="white">В этой категории пока нет расходов</Text>

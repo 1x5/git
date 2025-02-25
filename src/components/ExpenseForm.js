@@ -68,7 +68,7 @@ const ExpenseForm = ({ isOpen, onClose, onSubmit, initialData, categoryName }) =
     <Modal isOpen={isOpen} onClose={onClose}>
       <ModalOverlay backdropFilter="blur(10px)" />
       <ModalContent 
-        bg="rgba(255, 255, 255, 0.9)" 
+        bg="#ffffff" 
         boxShadow="xl"
         borderRadius="xl"
       >
@@ -79,7 +79,7 @@ const ExpenseForm = ({ isOpen, onClose, onSubmit, initialData, categoryName }) =
           right="-3px" 
           bottom="-3px" 
           borderRadius="xl" 
-          bgGradient="linear(to-r, brand.400, brand.200)" 
+        //   bgGradient="linear(to-r, brand.400, brand.200)" 
           opacity="0.6" 
           filter="blur(8px)" 
           zIndex="-1" 

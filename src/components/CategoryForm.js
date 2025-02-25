@@ -55,9 +55,10 @@ const CategoryForm = ({ isOpen, onClose, onSubmit, initialData }) => {
     <Modal isOpen={isOpen} onClose={onClose}>
       <ModalOverlay backdropFilter="blur(10px)" />
       <ModalContent 
-        bg="rgba(255, 255, 255, 0.9)" 
+        bg="#ffffff" 
         boxShadow="xl"
         borderRadius="xl"
+        
       >
         <Box 
           position="absolute" 
@@ -66,33 +67,34 @@ const CategoryForm = ({ isOpen, onClose, onSubmit, initialData }) => {
           right="-3px" 
           bottom="-3px" 
           borderRadius="xl" 
-          bgGradient="linear(to-r, brand.400, brand.200)" 
+          bgGradient="linear(to-r,rgb(34, 37, 49,rgb(34, 37, 49))" 
           opacity="0.6" 
-          filter="blur(8px)" 
+          filter="blur(0px)" 
           zIndex="-1" 
         />
-        <ModalHeader>{initialData ? 'Редактировать категорию' : 'Новая категория'}</ModalHeader>
+        <ModalHeader color="grey" >{initialData ? 'Редактировать категорию' : 'Новая категория'}</ModalHeader>
         <ModalCloseButton />
         <ModalBody>
           <FormControl isRequired mb={4}>
-            <FormLabel>Название</FormLabel>
+            <FormLabel color="grey">Название</FormLabel>
             <Input
               name="name"
               value={formData.name}
               onChange={handleChange}
               placeholder="Введите название категории"
-              borderColor="brand.200"
+              color="grey" 
+              borderColor="#379f94"
               _focus={{ borderColor: 'brand.400', boxShadow: '0 0 0 1px #46aea2' }}
             />
           </FormControl>
           <FormControl mb={4}>
-            <FormLabel>Описание</FormLabel>
+            <FormLabel color="grey">Описание</FormLabel>
             <Textarea
               name="description"
               value={formData.description}
               onChange={handleChange}
               placeholder="Введите описание (необязательно)"
-              borderColor="brand.200"
+              borderColor="#379f94"
               _focus={{ borderColor: 'brand.400', boxShadow: '0 0 0 1px #46aea2' }}
             />
           </FormControl>
@@ -103,14 +105,14 @@ const CategoryForm = ({ isOpen, onClose, onSubmit, initialData }) => {
             variant="outline" 
             mr={3} 
             onClick={onClose}
-            borderColor="brand.200"
-            color="brand.700"
+            borderColor="#379f94"
+            color="#379f94"
             _hover={{ bg: 'brand.50' }}
           >
             Отмена
           </Button>
           <Button 
-            bg="brand.500" 
+            bg="#379f94" 
             color="white" 
             onClick={handleSubmit}
             _hover={{ bg: 'brand.600' }}
