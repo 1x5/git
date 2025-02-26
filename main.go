@@ -11,7 +11,7 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/lib/pq"
 )
 
 // Структуры данных
@@ -92,36 +92,52 @@ func main() {
 
 // Инициализация базы данных
 func initDB() {
+	host := os.Getenv("DB_HOST")
+	port := os.Getenv("DB_PORT")
+	user := os.Getenv("DB_USER")
+	password := os.Getenv("DB_PASSWORD")
+	dbname := os.Getenv("DB_NAME")
+
+	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		host, port, user, password, dbname)
+
 	var err error
-	db, err = sql.Open("sqlite3", "./expenses.db")
+	db, err = sql.Open("postgres", connStr)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error opening database: %v", err)
 	}
 
-	// Создание таблиц, если они не существуют
-	createTables := `
-	CREATE TABLE IF NOT EXISTS categories (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL,
-		description TEXT,
-		monthly_stats TEXT
-	);
+	// Проверка подключения
+	err = db.Ping()
+	if err != nil {
+		log.Fatalf("Error connecting to the database: %v", err)
+	}
 
-	CREATE TABLE IF NOT EXISTS expenses (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		category_id INTEGER,
-		name TEXT NOT NULL,
-		amount REAL NOT NULL,
-		date DATETIME,
-		description TEXT,
-		FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE CASCADE
-	);
-	`
+	// Создание таблиц
+	createTables := `
+    CREATE TABLE IF NOT EXISTS categories (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        monthly_stats JSONB
+    );
+
+    CREATE TABLE IF NOT EXISTS expenses (
+        id SERIAL PRIMARY KEY,
+        category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        date TIMESTAMP,
+        description TEXT
+    );
+    `
 
 	_, err = db.Exec(createTables)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error creating tables: %v", err)
 	}
+
+	log.Println("Database initialized successfully")
 }
 
 // Обработчики для категорий
@@ -139,7 +155,7 @@ func getCategories(c *gin.Context) {
 	var categories []Category
 	for rows.Next() {
 		var cat Category
-		var monthlyStatsJSON string
+		var monthlyStatsJSON []byte
 		err := rows.Scan(&cat.ID, &cat.Name, &cat.Description, &monthlyStatsJSON)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, Response{
@@ -149,16 +165,16 @@ func getCategories(c *gin.Context) {
 			return
 		}
 
-		// Разбор JSON строки для monthlyStats
+		// Разбор JSON для monthlyStats
 		cat.MonthlyStats = make(map[string]float64)
-		if monthlyStatsJSON != "" {
-			if err := json.Unmarshal([]byte(monthlyStatsJSON), &cat.MonthlyStats); err != nil {
+		if len(monthlyStatsJSON) > 0 {
+			if err := json.Unmarshal(monthlyStatsJSON, &cat.MonthlyStats); err != nil {
 				log.Printf("Error parsing monthly stats for category %d: %v", cat.ID, err)
 			}
 		}
 
 		// Получаем все расходы для данной категории
-		expRows, err := db.Query("SELECT id, name, amount, date, description FROM expenses WHERE category_id = ?", cat.ID)
+		expRows, err := db.Query("SELECT id, name, amount, date, description FROM expenses WHERE category_id = $1", cat.ID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, Response{
 				Status:  "error",
@@ -202,8 +218,9 @@ func getCategory(c *gin.Context) {
 	id := c.Param("id")
 
 	var cat Category
-	var monthlyStatsJSON string
-	err := db.QueryRow("SELECT id, name, description, monthly_stats FROM categories WHERE id = ?", id).Scan(&cat.ID, &cat.Name, &cat.Description, &monthlyStatsJSON)
+	var monthlyStatsJSON []byte
+	err := db.QueryRow("SELECT id, name, description, monthly_stats FROM categories WHERE id = $1", id).
+		Scan(&cat.ID, &cat.Name, &cat.Description, &monthlyStatsJSON)
 	if err != nil {
 		c.JSON(http.StatusNotFound, Response{
 			Status:  "error",
@@ -214,14 +231,14 @@ func getCategory(c *gin.Context) {
 
 	// Разбор JSON строки для monthlyStats
 	cat.MonthlyStats = make(map[string]float64)
-	if monthlyStatsJSON != "" {
-		if err := json.Unmarshal([]byte(monthlyStatsJSON), &cat.MonthlyStats); err != nil {
+	if len(monthlyStatsJSON) > 0 {
+		if err := json.Unmarshal(monthlyStatsJSON, &cat.MonthlyStats); err != nil {
 			log.Printf("Error parsing monthly stats for category %d: %v", cat.ID, err)
 		}
 	}
 
 	// Получаем все расходы для данной категории
-	rows, err := db.Query("SELECT id, name, amount, date, description FROM expenses WHERE category_id = ?", id)
+	rows, err := db.Query("SELECT id, name, amount, date, description FROM expenses WHERE category_id = $1", id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Response{
 			Status:  "error",
@@ -278,8 +295,9 @@ func createCategory(c *gin.Context) {
 		return
 	}
 
-	result, err := db.Exec("INSERT INTO categories (name, description, monthly_stats) VALUES (?, ?, ?)",
-		cat.Name, cat.Description, string(monthlyStatsJSON))
+	var id int
+	err = db.QueryRow("INSERT INTO categories (name, description, monthly_stats) VALUES ($1, $2, $3) RETURNING id",
+		cat.Name, cat.Description, monthlyStatsJSON).Scan(&id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Response{
 			Status:  "error",
@@ -288,16 +306,7 @@ func createCategory(c *gin.Context) {
 		return
 	}
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
-		return
-	}
-
-	cat.ID = int(id)
+	cat.ID = id
 	c.JSON(http.StatusCreated, Response{
 		Status:  "success",
 		Message: "Category created successfully",
@@ -326,8 +335,8 @@ func updateCategory(c *gin.Context) {
 		return
 	}
 
-	_, err = db.Exec("UPDATE categories SET name = ?, description = ?, monthly_stats = ? WHERE id = ?",
-		cat.Name, cat.Description, string(monthlyStatsJSON), id)
+	_, err = db.Exec("UPDATE categories SET name = $1, description = $2, monthly_stats = $3 WHERE id = $4",
+		cat.Name, cat.Description, monthlyStatsJSON, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Response{
 			Status:  "error",
@@ -346,7 +355,7 @@ func updateCategory(c *gin.Context) {
 func deleteCategory(c *gin.Context) {
 	id := c.Param("id")
 
-	_, err := db.Exec("DELETE FROM categories WHERE id = ?", id)
+	_, err := db.Exec("DELETE FROM categories WHERE id = $1", id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Response{
 			Status:  "error",
@@ -361,14 +370,13 @@ func deleteCategory(c *gin.Context) {
 	})
 }
 
-// Обработчики для расходов
 func getExpenses(c *gin.Context) {
 	categoryID := c.Query("categoryId")
 	var rows *sql.Rows
 	var err error
 
 	if categoryID != "" {
-		rows, err = db.Query("SELECT id, category_id, name, amount, date, description FROM expenses WHERE category_id = ?", categoryID)
+		rows, err = db.Query("SELECT id, category_id, name, amount, date, description FROM expenses WHERE category_id = $1", categoryID)
 	} else {
 		rows, err = db.Query("SELECT id, category_id, name, amount, date, description FROM expenses")
 	}
@@ -410,7 +418,7 @@ func getExpense(c *gin.Context) {
 
 	var exp Expense
 	var dateStr string
-	err := db.QueryRow("SELECT id, category_id, name, amount, date, description FROM expenses WHERE id = ?", id).
+	err := db.QueryRow("SELECT id, category_id, name, amount, date, description FROM expenses WHERE id = $1", id).
 		Scan(&exp.ID, &exp.CategoryID, &exp.Name, &exp.Amount, &dateStr, &exp.Description)
 	if err != nil {
 		c.JSON(http.StatusNotFound, Response{
@@ -443,8 +451,9 @@ func createExpense(c *gin.Context) {
 		exp.Date = time.Now()
 	}
 
-	result, err := db.Exec("INSERT INTO expenses (category_id, name, amount, date, description) VALUES (?, ?, ?, ?, ?)",
-		exp.CategoryID, exp.Name, exp.Amount, exp.Date.Format(time.RFC3339), exp.Description)
+	var id int
+	err := db.QueryRow("INSERT INTO expenses (category_id, name, amount, date, description) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+		exp.CategoryID, exp.Name, exp.Amount, exp.Date.Format(time.RFC3339), exp.Description).Scan(&id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Response{
 			Status:  "error",
@@ -453,16 +462,7 @@ func createExpense(c *gin.Context) {
 		return
 	}
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
-		return
-	}
-
-	exp.ID = int(id)
+	exp.ID = id
 
 	// Обновляем месячную статистику для категории
 	updateMonthlyStats(exp.CategoryID, exp.Amount, exp.Date)
@@ -488,7 +488,7 @@ func updateExpense(c *gin.Context) {
 	// Получаем текущие данные о расходе для обновления статистики
 	var oldExp Expense
 	var dateStr string
-	err := db.QueryRow("SELECT id, category_id, amount, date FROM expenses WHERE id = ?", id).
+	err := db.QueryRow("SELECT id, category_id, amount, date FROM expenses WHERE id = $1", id).
 		Scan(&oldExp.ID, &oldExp.CategoryID, &oldExp.Amount, &dateStr)
 	if err != nil {
 		c.JSON(http.StatusNotFound, Response{
@@ -500,7 +500,7 @@ func updateExpense(c *gin.Context) {
 	oldExp.Date, _ = time.Parse(time.RFC3339, dateStr)
 
 	// Обновляем расход
-	_, err = db.Exec("UPDATE expenses SET category_id = ?, name = ?, amount = ?, date = ?, description = ? WHERE id = ?",
+	_, err = db.Exec("UPDATE expenses SET category_id = $1, name = $2, amount = $3, date = $4, description = $5 WHERE id = $6",
 		exp.CategoryID, exp.Name, exp.Amount, exp.Date.Format(time.RFC3339), exp.Description, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Response{
@@ -529,7 +529,7 @@ func deleteExpense(c *gin.Context) {
 	// Получаем данные о расходе перед удалением для обновления статистики
 	var exp Expense
 	var dateStr string
-	err := db.QueryRow("SELECT id, category_id, amount, date FROM expenses WHERE id = ?", id).
+	err := db.QueryRow("SELECT id, category_id, amount, date FROM expenses WHERE id = $1", id).
 		Scan(&exp.ID, &exp.CategoryID, &exp.Amount, &dateStr)
 	if err != nil {
 		c.JSON(http.StatusNotFound, Response{
@@ -541,7 +541,7 @@ func deleteExpense(c *gin.Context) {
 	exp.Date, _ = time.Parse(time.RFC3339, dateStr)
 
 	// Удаляем расход
-	_, err = db.Exec("DELETE FROM expenses WHERE id = ?", id)
+	_, err = db.Exec("DELETE FROM expenses WHERE id = $1", id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Response{
 			Status:  "error",
@@ -559,7 +559,6 @@ func deleteExpense(c *gin.Context) {
 	})
 }
 
-// Обработчик для получения общей статистики
 func getStatistics(c *gin.Context) {
 	// Получение общей суммы расходов
 	var totalAmount sql.NullFloat64
@@ -590,7 +589,7 @@ func getStatistics(c *gin.Context) {
 	}
 
 	var currentMonthAmount sql.NullFloat64
-	err = db.QueryRow("SELECT SUM(amount) FROM expenses WHERE date >= ? AND date < ?", startOfMonth, endOfMonth).Scan(&currentMonthAmount)
+	err = db.QueryRow("SELECT SUM(amount) FROM expenses WHERE date >= $1 AND date < $2", startOfMonth, endOfMonth).Scan(&currentMonthAmount)
 	if err != nil {
 		log.Printf("Error getting current month amount: %v", err)
 		c.JSON(http.StatusInternalServerError, Response{
@@ -629,7 +628,7 @@ func getStatistics(c *gin.Context) {
 	for rows.Next() {
 		var cat CategoryStat
 		var totalAmount sql.NullFloat64
-		var monthlyStatsJSON string
+		var monthlyStatsJSON []byte
 		err := rows.Scan(&cat.ID, &cat.Name, &monthlyStatsJSON, &totalAmount)
 		if err != nil {
 			log.Printf("Error scanning category stats: %v", err)
@@ -646,8 +645,8 @@ func getStatistics(c *gin.Context) {
 
 		// Разбор JSON строки для monthlyStats
 		cat.MonthlyStats = make(map[string]float64)
-		if monthlyStatsJSON != "" {
-			if err := json.Unmarshal([]byte(monthlyStatsJSON), &cat.MonthlyStats); err != nil {
+		if len(monthlyStatsJSON) > 0 {
+			if err := json.Unmarshal(monthlyStatsJSON, &cat.MonthlyStats); err != nil {
 				log.Printf("Error parsing monthly stats for category %d: %v", cat.ID, err)
 			}
 		}
@@ -656,7 +655,7 @@ func getStatistics(c *gin.Context) {
 	}
 
 	// Получение статистики по месяцам (для всех категорий)
-	rows, err = db.Query("SELECT strftime('%Y-%m', date) as month, SUM(amount) FROM expenses GROUP BY month ORDER BY month")
+	rows, err = db.Query("SELECT to_char(date, 'YYYY-MM') as month, SUM(amount) FROM expenses GROUP BY month ORDER BY month")
 	if err != nil {
 		log.Printf("Error getting monthly totals: %v", err)
 		c.JSON(http.StatusInternalServerError, Response{
@@ -695,19 +694,18 @@ func getStatistics(c *gin.Context) {
 	})
 }
 
-// Вспомогательная функция для обновления месячной статистики
 func updateMonthlyStats(categoryID int, amount float64, date time.Time) {
 	// Получаем текущую статистику
-	var monthlyStatsJSON string
-	err := db.QueryRow("SELECT monthly_stats FROM categories WHERE id = ?", categoryID).Scan(&monthlyStatsJSON)
+	var monthlyStatsJSON []byte
+	err := db.QueryRow("SELECT monthly_stats FROM categories WHERE id = $1", categoryID).Scan(&monthlyStatsJSON)
 	if err != nil {
 		log.Printf("Error getting monthly stats for category %d: %v", categoryID, err)
 		return
 	}
 
 	monthlyStats := make(map[string]float64)
-	if monthlyStatsJSON != "" {
-		if err := json.Unmarshal([]byte(monthlyStatsJSON), &monthlyStats); err != nil {
+	if len(monthlyStatsJSON) > 0 {
+		if err := json.Unmarshal(monthlyStatsJSON, &monthlyStats); err != nil {
 			log.Printf("Error parsing monthly stats for category %d: %v", categoryID, err)
 			return
 		}
@@ -724,7 +722,7 @@ func updateMonthlyStats(categoryID int, amount float64, date time.Time) {
 		return
 	}
 
-	_, err = db.Exec("UPDATE categories SET monthly_stats = ? WHERE id = ?", string(updatedStatsJSON), categoryID)
+	_, err = db.Exec("UPDATE categories SET monthly_stats = $1 WHERE id = $2", updatedStatsJSON, categoryID)
 	if err != nil {
 		log.Printf("Error updating monthly stats for category %d: %v", categoryID, err)
 	}
