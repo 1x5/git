@@ -1,0 +1,38 @@
+FROM golang:1.17-alpine AS builder
+
+WORKDIR /app
+
+# Установка зависимостей
+RUN apk add --no-cache gcc musl-dev
+
+# Копируем файлы зависимостей
+COPY go.mod go.sum ./
+
+# Загружаем зависимости
+RUN go mod download
+
+# Копируем исходный код
+COPY . .
+
+# Собираем приложение
+RUN CGO_ENABLED=1 GOOS=linux go build -a -o main .
+
+# Финальный образ
+FROM alpine:latest
+
+WORKDIR /app
+
+# Копируем скомпилированное приложение
+COPY --from=builder /app/main .
+
+# Создаем директорию для статических файлов
+RUN mkdir -p /app/static
+
+# Устанавливаем необходимые библиотеки
+RUN apk --no-cache add ca-certificates postgresql-client
+
+# Экспортируем порт
+EXPOSE 8080
+
+# Запускаем приложение
+CMD ["./main"]
