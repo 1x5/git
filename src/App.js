@@ -336,7 +336,7 @@ function App() {
               <Flex justifyContent="space-between" alignItems="center">
                 <Link to="/">
                   <Heading size="lg" color="white" textShadow="0 2px 4px rgba(0,0,0,0.1)">
-                    Учет расходов
+                    PM
                   </Heading>
                 </Link>
                 <Flex>
