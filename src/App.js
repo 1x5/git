@@ -27,7 +27,7 @@ import ExpenseForm from './components/ExpenseForm';
 import Statistics from './components/Statistics';
 import theme from './theme';
 
-const API_URL = 'http://localhost:8081/api';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8081/api';
 
 function App() {
   const [categories, setCategories] = useState([]);
@@ -484,63 +484,63 @@ function App() {
                             onClick={() => {
                               if (window.confirm('Вы уверены, что хотите удалить эту категорию?')) {
                                 handleCategoryDelete(selectedCategory.id);
-                            }
-                        }}
+                              }
+                            }}
+                          />
+                          <Button
+                            leftIcon={<AddIcon />}
+                            variant="outline"
+                            colorScheme="whiteAlpha"
+                            size="sm"
+                            _hover={{ bg: 'whiteAlpha.200' }}
+                            onClick={() => {
+                              setEditingExpense(null); // Сбрасываем состояние редактирования
+                              onExpenseFormOpen();
+                            }}
+                          >
+                            Добавить расход
+                          </Button>
+                        </Flex>
+                      </Flex>
+                      <ExpenseList
+                        expenses={expenses}
+                        onDelete={handleExpenseDelete}
+                        onEdit={handleExpenseEdit}
                       />
-                      <Button
-                        leftIcon={<AddIcon />}
-                        variant="outline"
-                        colorScheme="whiteAlpha"
-                        size="sm"
-                        _hover={{ bg: 'whiteAlpha.200' }}
-                        onClick={() => {
-                          setEditingExpense(null); // Сбрасываем состояние редактирования
-                          onExpenseFormOpen();
-                        }}
-                      >
-                        Добавить расход
-                      </Button>
-                    </Flex>
-                  </Flex>
-                  <ExpenseList
-                    expenses={expenses}
-                    onDelete={handleExpenseDelete}
-                    onEdit={handleExpenseEdit}
-                  />
-                </Box>
-              ) : (
-                <CategoryList
-                  categories={categories}
-                  onSelect={handleCategorySelect}
-                  onDelete={handleCategoryDelete}
-                  onEdit={handleCategoryEdit}
-                />
+                    </Box>
+                  ) : (
+                    <CategoryList
+                      categories={categories}
+                      onSelect={handleCategorySelect}
+                      onDelete={handleCategoryDelete}
+                      onEdit={handleCategoryEdit}
+                    />
+                  )}
+                </>
               )}
-            </>
-          )}
-        </Container>
-      </Box>
+            </Container>
+          </Box>
 
-      {/* Форма категории */}
-      <CategoryForm
-        isOpen={isCategoryFormOpen}
-        onClose={handleCategoryFormClose}
-        onSubmit={handleCategorySubmit}
-        initialData={editingCategory}
-      />
+          {/* Форма категории */}
+          <CategoryForm
+            isOpen={isCategoryFormOpen}
+            onClose={handleCategoryFormClose}
+            onSubmit={handleCategorySubmit}
+            initialData={editingCategory}
+          />
 
-      {/* Форма расхода */}
-      <ExpenseForm
-        isOpen={isExpenseFormOpen}
-        onClose={handleExpenseFormClose}
-        onSubmit={handleExpenseSubmit}
-        initialData={editingExpense}
-        categoryName={selectedCategory?.name}
-      />
-    </Box>
-  </Router>
-</ChakraProvider>
-);
+          {/* Форма расхода */}
+          <ExpenseForm
+            isOpen={isExpenseFormOpen}
+            onClose={handleExpenseFormClose}
+            onSubmit={handleExpenseSubmit}
+            initialData={editingExpense}
+            categoryName={selectedCategory?.name}
+          />
+        </Box>
+      </Router>
+    </ChakraProvider>
+  );
 }
 
 export default App;
