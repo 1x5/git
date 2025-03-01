@@ -40,7 +40,7 @@ function App() {
     monthlyTotals: {}
   });
   const [isLoading, setIsLoading] = useState(true);
-  const [showStatistics, setShowStatistics] = useState(false);
+  // const [showStatistics, setShowStatistics] = useState(false);
   
   // Состояния для редактирования
   const [editingExpense, setEditingExpense] = useState(null);
@@ -323,9 +323,9 @@ function App() {
     setExpenses([]);
   };
 
-  const handleToggleStatistics = () => {
-    setShowStatistics(!showStatistics);
-  };
+  // const handleToggleStatistics = () => {
+  //   setShowStatistics(!showStatistics);
+  // };
 
   return (
     <ChakraProvider theme={theme}>
@@ -340,7 +340,8 @@ function App() {
                   </Heading>
                 </Link>
                 <Flex>
-                  <Button 
+
+                  {/* <Button 
                     colorScheme="whiteAlpha" 
                     variant="outline" 
                     mr={3} 
@@ -348,7 +349,8 @@ function App() {
                     _hover={{ bg: 'whiteAlpha.200' }}
                   >
                     {showStatistics ? 'Показать расходы' : 'Показать статистику'}
-                  </Button>
+                  </Button> */}
+
                   <Button 
                     leftIcon={<AddIcon />} 
                     variant="outline" 
@@ -368,7 +370,7 @@ function App() {
 
           <Box py={6}>
             <Container maxW="container.xl">
-              {!isLoading && (
+              {/* {!isLoading && (
                 <Box mb={6} p={4} className="glass-card">
                   <SimpleGrid columns={{ base: 1, md: 2 }} spacing={6}>
                     <Flex direction="column" justifyContent="center">
@@ -423,101 +425,103 @@ function App() {
                     </Flex>
                   </SimpleGrid>
                 </Box>
-              )}
+              )} */}
 
-              <Flex mb={6} overflowX="auto" pb={2}>
-                <Button 
-                  className={selectedCategory === null ? "category-pill active" : "category-pill"}
-                  color="white"
-                  mr={2} 
-                  onClick={handleShowAllCategories}
-                  bg="transparent"
-                  _hover={{ bg: 'whiteAlpha.200' }}
-                >
-                  Все категории
-                </Button>
-                {categories.map(category => (
-                  <Box key={category.id} mr={2}>
-                    <Button
-                      className={selectedCategory?.id === category.id ? "category-pill active" : "category-pill"}
-                      color="white"
-                      onClick={() => handleCategorySelect(category)}
-                      bg="transparent"
-                      _hover={{ bg: 'whiteAlpha.200' }}
-                    >
-                      {category.name}
-                      <Badge ml={2} bg="whiteAlpha.300" color="white">
-                        {category.totalAmount.toFixed(2)} ₽
-                      </Badge>
-                    </Button>
-                  </Box>
-                ))}
-              </Flex>
-
-              {showStatistics ? (
-                <Statistics statistics={statistics} categories={categories} />
-              ) : (
-                <>
-                  {selectedCategory ? (
-                    <Box className="glass-card" overflow="hidden">
-                      <Flex justifyContent="space-between" alignItems="center" p={4} bg="rgba(255, 255, 255, 0.1)">
-                        <Heading size="md" color="white">{selectedCategory.name}</Heading>
-                        <Flex>
-                          <IconButton
-                            icon={<EditIcon />}
-                            aria-label="Edit category"
-                            size="sm"
-                            mr={2}
-                            variant="ghost"
-                            color="white"
-                            _hover={{ bg: 'whiteAlpha.200' }}
-                            onClick={() => handleCategoryEdit(selectedCategory)}
-                          />
-                          <IconButton
-                            icon={<DeleteIcon />}
-                            aria-label="Delete category"
-                            size="sm"
-                            variant="ghost"
-                            color="white"
-                            _hover={{ bg: 'whiteAlpha.200' }}
-                            mr={2}
-                            onClick={() => {
-                              if (window.confirm('Вы уверены, что хотите удалить эту категорию?')) {
-                                handleCategoryDelete(selectedCategory.id);
-                              }
-                            }}
-                          />
-                          <Button
-                            leftIcon={<AddIcon />}
-                            variant="outline"
-                            colorScheme="whiteAlpha"
-                            size="sm"
-                            _hover={{ bg: 'whiteAlpha.200' }}
-                            onClick={() => {
-                              setEditingExpense(null); // Сбрасываем состояние редактирования
-                              onExpenseFormOpen();
-                            }}
-                          >
-                            Добавить расход
-                          </Button>
-                        </Flex>
-                      </Flex>
-                      <ExpenseList
-                        expenses={expenses}
-                        onDelete={handleExpenseDelete}
-                        onEdit={handleExpenseEdit}
-                      />
+              {/* Исправленный блок категорий для мобильной версии */}
+              <Box mb={6} overflowX="auto" pb={2}>
+                <Flex flexWrap="nowrap" whiteSpace="nowrap" minWidth="100%">
+                  <Button 
+                    className={selectedCategory === null ? "category-pill active" : "category-pill"}
+                    color="white"
+                    mr={2} 
+                    flex="0 0 auto"
+                    onClick={handleShowAllCategories}
+                    bg="transparent"
+                    _hover={{ bg: 'whiteAlpha.200' }}
+                  >
+                    Все категории
+                  </Button>
+                  {categories.map(category => (
+                    <Box key={category.id} mr={2} flex="0 0 auto">
+                      <Button
+                        className={selectedCategory?.id === category.id ? "category-pill active" : "category-pill"}
+                        color="white"
+                        onClick={() => handleCategorySelect(category)}
+                        bg="transparent"
+                        _hover={{ bg: 'whiteAlpha.200' }}
+                        whiteSpace="nowrap"
+                      >
+                        {category.name}
+                        <Badge ml={2} bg="whiteAlpha.300" color="white">
+                          {category.totalAmount.toFixed(2)} ₽
+                        </Badge>
+                      </Button>
                     </Box>
-                  ) : (
-                    <CategoryList
-                      categories={categories}
-                      onSelect={handleCategorySelect}
-                      onDelete={handleCategoryDelete}
-                      onEdit={handleCategoryEdit}
+                  ))}
+                </Flex>
+              </Box>
+
+              {/* Исправлено: Убрана проверка showStatistics */}
+              <>
+                {selectedCategory ? (
+                  <Box className="glass-card" overflow="hidden">
+                    <Flex justifyContent="space-between" alignItems="center" p={4} bg="rgba(255, 255, 255, 0.1)">
+                      <Heading size="md" color="white">{selectedCategory.name}</Heading>
+                      <Flex>
+                        <IconButton
+                          icon={<EditIcon />}
+                          aria-label="Edit category"
+                          size="sm"
+                          mr={2}
+                          variant="ghost"
+                          color="white"
+                          _hover={{ bg: 'whiteAlpha.200' }}
+                          onClick={() => handleCategoryEdit(selectedCategory)}
+                        />
+                        <IconButton
+                          icon={<DeleteIcon />}
+                          aria-label="Delete category"
+                          size="sm"
+                          variant="ghost"
+                          color="white"
+                          _hover={{ bg: 'whiteAlpha.200' }}
+                          mr={2}
+                          onClick={() => {
+                            if (window.confirm('Вы уверены, что хотите удалить эту категорию?')) {
+                              handleCategoryDelete(selectedCategory.id);
+                            }
+                          }}
+                        />
+                        <Button
+                          leftIcon={<AddIcon />}
+                          variant="outline"
+                          colorScheme="whiteAlpha"
+                          size="sm"
+                          _hover={{ bg: 'whiteAlpha.200' }}
+                          onClick={() => {
+                            setEditingExpense(null); // Сбрасываем состояние редактирования
+                            onExpenseFormOpen();
+                          }}
+                        >
+                          Добавить расход
+                        </Button>
+                      </Flex>
+                    </Flex>
+                    <ExpenseList
+                      expenses={expenses}
+                      onDelete={handleExpenseDelete}
+                      onEdit={handleExpenseEdit}
                     />
-                  )}
-                </>
-              )}
+                  </Box>
+                ) : (
+                  <CategoryList
+                    categories={categories}
+                    onSelect={handleCategorySelect}
+                    onDelete={handleCategoryDelete}
+                    onEdit={handleCategoryEdit}
+                  />
+                )}
+              </>
             </Container>
           </Box>
 
