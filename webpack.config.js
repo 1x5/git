@@ -1,6 +1,6 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
-const webpack = require('webpack'); // Добавляем Webpack
+const webpack = require('webpack');
 
 module.exports = {
   entry: './src/index.js',
@@ -35,13 +35,18 @@ module.exports = {
       template: './public/index.html'
     }),
     new webpack.DefinePlugin({
-      'process.env.REACT_APP_API_URL': JSON.stringify(process.env.REACT_APP_API_URL || 'https://api.codeLx5.ru/api')
+      'process.env.REACT_APP_API_URL': JSON.stringify(process.env.REACT_APP_API_URL || 'https://api.codelx5.ru/api')
     })
   ],
   devServer: {
     port: 3000,
+    historyApiFallback: true,
     proxy: {
-       '/api': 'http://localhost:8081'
+      '/api': {
+        target: 'http://localhost:8081',
+        secure: false,
+        changeOrigin: true
+      }
     }
   }
 };
