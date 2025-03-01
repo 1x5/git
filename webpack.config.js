@@ -36,7 +36,7 @@ module.exports = {
     }),
     // Добавьте этот плагин для передачи переменных окружения в приложение
     new webpack.DefinePlugin({
-      'process.env.REACT_APP_API_URL': JSON.stringify(process.env.REACT_APP_API_URL || 'https://api.codelx5.ru/api')
+      'process.env.REACT_APP_API_URL': JSON.stringify(process.env.REACT_APP_API_URL || 'https://api.code1x5.ru/api')
     })
   ],
   devServer: {
