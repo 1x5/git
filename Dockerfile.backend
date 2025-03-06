@@ -1,38 +1,40 @@
+# First stage: Build the Go application
 FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
-# Установка зависимостей
+# Install necessary build tools
 RUN apk add --no-cache gcc musl-dev
 
-# Копируем файлы зависимостей
+# Copy only dependency files first for better caching
 COPY go.mod go.sum ./
-
-# Загружаем зависимости
 RUN go mod download
 
-# Копируем исходный код
+# Copy the rest of the source code
 COPY . .
 
-# Собираем приложение
-RUN CGO_ENABLED=1 GOOS=linux go build -a -o main .
+# Build with optimizations
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o main .
 
-# Финальный образ
+# Second stage: Create the final image
 FROM alpine:latest
 
 WORKDIR /app
 
-# Копируем скомпилированное приложение
+# Copy the binary from the builder stage
 COPY --from=builder /app/main .
 
-# Создаем директорию для статических файлов
+# Create static directory
 RUN mkdir -p /app/static
 
-# Устанавливаем необходимые библиотеки
+# Install necessary runtime dependencies
 RUN apk --no-cache add ca-certificates postgresql-client
 
-# Экспортируем порт
+# Set environment variables
+ENV GIN_MODE=release
+
+# Expose port
 EXPOSE 8080
 
-# Запускаем приложение
+# Run the application
 CMD ["./main"]

@@ -1,0 +1,48 @@
+# Игнорировать системные файлы
+.git
+.gitignore
+.DS_Store
+
+# Игнорировать логи
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Игнорировать директории зависимостей
+node_modules
+vendor
+
+# Игнорировать временные файлы и сборки
+dist
+build
+tmp
+temp
+
+# Игнорировать конфигурационные файлы разработки
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Игнорировать документацию
+README.md
+docs
+*.md
+
+# Игнорировать тесты
+tests
+__tests__
+*.test.js
+*.spec.js
+
+# Другие файлы, которые не нужны в докере
+Dockerfile*
+docker-compose*
+.dockerignore
+.editorconfig
+.eslintrc*
+.prettier*
+.babelrc
+.travis.yml

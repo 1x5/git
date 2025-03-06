@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -41,9 +42,25 @@ type Response struct {
 
 var db *sql.DB
 
+// Подготовленные запросы
+var (
+	stmtGetCategories    *sql.Stmt
+	stmtGetCategory      *sql.Stmt
+	stmtGetExpenses      *sql.Stmt
+	stmtGetExpensesByCat *sql.Stmt
+	stmtGetExpense       *sql.Stmt
+	stmtCreateExpense    *sql.Stmt
+	stmtUpdateExpense    *sql.Stmt
+	stmtDeleteExpense    *sql.Stmt
+)
+
 func main() {
 	// Инициализация базы данных
 	initDB()
+
+	// Инициализация подготовленных запросов
+	initPreparedStatements()
+	defer closePreparedStatements()
 
 	// Инициализация HTTP сервера
 	router := gin.Default()
@@ -82,12 +99,24 @@ func main() {
 	router.Static("/static", "./static")
 	router.StaticFile("/", "./static/index.html")
 
-	// Запуск сервера
+	// Запуск сервера с настройками таймаутов
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
-	router.Run(":" + port)
+
+	server := &http.Server{
+		Addr:         ":" + port,
+		Handler:      router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	log.Printf("Server starting on port %s", port)
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("Error starting server: %v", err)
+	}
 }
 
 // Инициализация базы данных
@@ -107,8 +136,16 @@ func initDB() {
 		log.Fatalf("Error opening database: %v", err)
 	}
 
+	// Настройка пула соединений
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
 	// Проверка подключения
-	err = db.Ping()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = db.PingContext(ctx)
 	if err != nil {
 		log.Fatalf("Error connecting to the database: %v", err)
 	}
@@ -140,14 +177,83 @@ func initDB() {
 	log.Println("Database initialized successfully")
 }
 
+// Инициализация подготовленных запросов
+func initPreparedStatements() {
+	var err error
+
+	// Подготовка запросов для категорий
+	stmtGetCategories, err = db.Prepare("SELECT id, name, description, monthly_stats FROM categories")
+	if err != nil {
+		log.Fatalf("Error preparing stmtGetCategories: %v", err)
+	}
+
+	stmtGetCategory, err = db.Prepare("SELECT id, name, description, monthly_stats FROM categories WHERE id = $1")
+	if err != nil {
+		log.Fatalf("Error preparing stmtGetCategory: %v", err)
+	}
+
+	// Подготовка запросов для расходов
+	stmtGetExpenses, err = db.Prepare("SELECT id, category_id, name, amount, date, description FROM expenses")
+	if err != nil {
+		log.Fatalf("Error preparing stmtGetExpenses: %v", err)
+	}
+
+	stmtGetExpensesByCat, err = db.Prepare("SELECT id, category_id, name, amount, date, description FROM expenses WHERE category_id = $1")
+	if err != nil {
+		log.Fatalf("Error preparing stmtGetExpensesByCat: %v", err)
+	}
+
+	stmtGetExpense, err = db.Prepare("SELECT id, category_id, name, amount, date, description FROM expenses WHERE id = $1")
+	if err != nil {
+		log.Fatalf("Error preparing stmtGetExpense: %v", err)
+	}
+
+	stmtCreateExpense, err = db.Prepare("INSERT INTO expenses (category_id, name, amount, date, description) VALUES ($1, $2, $3, $4, $5) RETURNING id")
+	if err != nil {
+		log.Fatalf("Error preparing stmtCreateExpense: %v", err)
+	}
+
+	stmtUpdateExpense, err = db.Prepare("UPDATE expenses SET category_id = $1, name = $2, amount = $3, date = $4, description = $5 WHERE id = $6")
+	if err != nil {
+		log.Fatalf("Error preparing stmtUpdateExpense: %v", err)
+	}
+
+	stmtDeleteExpense, err = db.Prepare("DELETE FROM expenses WHERE id = $1")
+	if err != nil {
+		log.Fatalf("Error preparing stmtDeleteExpense: %v", err)
+	}
+
+	log.Println("Prepared statements initialized successfully")
+}
+
+// Закрытие подготовленных запросов
+func closePreparedStatements() {
+	stmtGetCategories.Close()
+	stmtGetCategory.Close()
+	stmtGetExpenses.Close()
+	stmtGetExpensesByCat.Close()
+	stmtGetExpense.Close()
+	stmtCreateExpense.Close()
+	stmtUpdateExpense.Close()
+	stmtDeleteExpense.Close()
+}
+
+// Вспомогательная функция для обработки ошибок
+func respondWithError(c *gin.Context, code int, message string) {
+	c.JSON(code, Response{
+		Status:  "error",
+		Message: message,
+	})
+}
+
 // Обработчики для категорий
 func getCategories(c *gin.Context) {
-	rows, err := db.Query("SELECT id, name, description, monthly_stats FROM categories")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := stmtGetCategories.QueryContext(ctx)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
+		respondWithError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 	defer rows.Close()
@@ -158,10 +264,7 @@ func getCategories(c *gin.Context) {
 		var monthlyStatsJSON []byte
 		err := rows.Scan(&cat.ID, &cat.Name, &cat.Description, &monthlyStatsJSON)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, Response{
-				Status:  "error",
-				Message: err.Error(),
-			})
+			respondWithError(c, http.StatusInternalServerError, err.Error())
 			return
 		}
 
@@ -174,12 +277,9 @@ func getCategories(c *gin.Context) {
 		}
 
 		// Получаем все расходы для данной категории
-		expRows, err := db.Query("SELECT id, name, amount, date, description FROM expenses WHERE category_id = $1", cat.ID)
+		expRows, err := stmtGetExpensesByCat.QueryContext(ctx, cat.ID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, Response{
-				Status:  "error",
-				Message: err.Error(),
-			})
+			respondWithError(c, http.StatusInternalServerError, err.Error())
 			return
 		}
 		defer expRows.Close()
@@ -189,12 +289,9 @@ func getCategories(c *gin.Context) {
 		for expRows.Next() {
 			var exp Expense
 			var dateStr string
-			err := expRows.Scan(&exp.ID, &exp.Name, &exp.Amount, &dateStr, &exp.Description)
+			err := expRows.Scan(&exp.ID, &exp.CategoryID, &exp.Name, &exp.Amount, &dateStr, &exp.Description)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, Response{
-					Status:  "error",
-					Message: err.Error(),
-				})
+				respondWithError(c, http.StatusInternalServerError, err.Error())
 				return
 			}
 
@@ -215,17 +312,17 @@ func getCategories(c *gin.Context) {
 }
 
 func getCategory(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	id := c.Param("id")
 
 	var cat Category
 	var monthlyStatsJSON []byte
-	err := db.QueryRow("SELECT id, name, description, monthly_stats FROM categories WHERE id = $1", id).
+	err := stmtGetCategory.QueryRowContext(ctx, id).
 		Scan(&cat.ID, &cat.Name, &cat.Description, &monthlyStatsJSON)
 	if err != nil {
-		c.JSON(http.StatusNotFound, Response{
-			Status:  "error",
-			Message: "Category not found",
-		})
+		respondWithError(c, http.StatusNotFound, "Category not found")
 		return
 	}
 
@@ -238,12 +335,9 @@ func getCategory(c *gin.Context) {
 	}
 
 	// Получаем все расходы для данной категории
-	rows, err := db.Query("SELECT id, name, amount, date, description FROM expenses WHERE category_id = $1", id)
+	rows, err := stmtGetExpensesByCat.QueryContext(ctx, id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
+		respondWithError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 	defer rows.Close()
@@ -253,12 +347,9 @@ func getCategory(c *gin.Context) {
 	for rows.Next() {
 		var exp Expense
 		var dateStr string
-		err := rows.Scan(&exp.ID, &exp.Name, &exp.Amount, &dateStr, &exp.Description)
+		err := rows.Scan(&exp.ID, &exp.CategoryID, &exp.Name, &exp.Amount, &dateStr, &exp.Description)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, Response{
-				Status:  "error",
-				Message: err.Error(),
-			})
+			respondWithError(c, http.StatusInternalServerError, err.Error())
 			return
 		}
 
@@ -278,31 +369,25 @@ func getCategory(c *gin.Context) {
 func createCategory(c *gin.Context) {
 	var cat Category
 	if err := c.ShouldBindJSON(&cat); err != nil {
-		c.JSON(http.StatusBadRequest, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
+		respondWithError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	// Преобразуем monthlyStats в JSON строку
 	monthlyStatsJSON, err := json.Marshal(cat.MonthlyStats)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{
-			Status:  "error",
-			Message: "Error serializing monthly stats",
-		})
+		respondWithError(c, http.StatusInternalServerError, "Error serializing monthly stats")
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	var id int
-	err = db.QueryRow("INSERT INTO categories (name, description, monthly_stats) VALUES ($1, $2, $3) RETURNING id",
+	err = db.QueryRowContext(ctx, "INSERT INTO categories (name, description, monthly_stats) VALUES ($1, $2, $3) RETURNING id",
 		cat.Name, cat.Description, monthlyStatsJSON).Scan(&id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
+		respondWithError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -318,30 +403,24 @@ func updateCategory(c *gin.Context) {
 	id := c.Param("id")
 	var cat Category
 	if err := c.ShouldBindJSON(&cat); err != nil {
-		c.JSON(http.StatusBadRequest, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
+		respondWithError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	// Преобразуем monthlyStats в JSON строку
 	monthlyStatsJSON, err := json.Marshal(cat.MonthlyStats)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{
-			Status:  "error",
-			Message: "Error serializing monthly stats",
-		})
+		respondWithError(c, http.StatusInternalServerError, "Error serializing monthly stats")
 		return
 	}
 
-	_, err = db.Exec("UPDATE categories SET name = $1, description = $2, monthly_stats = $3 WHERE id = $4",
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err = db.ExecContext(ctx, "UPDATE categories SET name = $1, description = $2, monthly_stats = $3 WHERE id = $4",
 		cat.Name, cat.Description, monthlyStatsJSON, id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
+		respondWithError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -355,12 +434,12 @@ func updateCategory(c *gin.Context) {
 func deleteCategory(c *gin.Context) {
 	id := c.Param("id")
 
-	_, err := db.Exec("DELETE FROM categories WHERE id = $1", id)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := db.ExecContext(ctx, "DELETE FROM categories WHERE id = $1", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
+		respondWithError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -371,21 +450,21 @@ func deleteCategory(c *gin.Context) {
 }
 
 func getExpenses(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	categoryID := c.Query("categoryId")
 	var rows *sql.Rows
 	var err error
 
 	if categoryID != "" {
-		rows, err = db.Query("SELECT id, category_id, name, amount, date, description FROM expenses WHERE category_id = $1", categoryID)
+		rows, err = stmtGetExpensesByCat.QueryContext(ctx, categoryID)
 	} else {
-		rows, err = db.Query("SELECT id, category_id, name, amount, date, description FROM expenses")
+		rows, err = stmtGetExpenses.QueryContext(ctx)
 	}
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
+		respondWithError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 	defer rows.Close()
@@ -396,10 +475,7 @@ func getExpenses(c *gin.Context) {
 		var dateStr string
 		err := rows.Scan(&exp.ID, &exp.CategoryID, &exp.Name, &exp.Amount, &dateStr, &exp.Description)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, Response{
-				Status:  "error",
-				Message: err.Error(),
-			})
+			respondWithError(c, http.StatusInternalServerError, err.Error())
 			return
 		}
 
@@ -414,17 +490,17 @@ func getExpenses(c *gin.Context) {
 }
 
 func getExpense(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	id := c.Param("id")
 
 	var exp Expense
 	var dateStr string
-	err := db.QueryRow("SELECT id, category_id, name, amount, date, description FROM expenses WHERE id = $1", id).
+	err := stmtGetExpense.QueryRowContext(ctx, id).
 		Scan(&exp.ID, &exp.CategoryID, &exp.Name, &exp.Amount, &dateStr, &exp.Description)
 	if err != nil {
-		c.JSON(http.StatusNotFound, Response{
-			Status:  "error",
-			Message: "Expense not found",
-		})
+		respondWithError(c, http.StatusNotFound, "Expense not found")
 		return
 	}
 
@@ -436,13 +512,48 @@ func getExpense(c *gin.Context) {
 	})
 }
 
+// Обновленная функция обновления статистики с поддержкой транзакций
+func updateMonthlyStatsWithTx(ctx context.Context, tx *sql.Tx, categoryID int, amount float64, date time.Time) error {
+	// Получаем текущую статистику
+	var monthlyStatsJSON []byte
+	err := tx.QueryRowContext(ctx, "SELECT monthly_stats FROM categories WHERE id = $1", categoryID).Scan(&monthlyStatsJSON)
+	if err != nil {
+		log.Printf("Error getting monthly stats for category %d: %v", categoryID, err)
+		return err
+	}
+
+	monthlyStats := make(map[string]float64)
+	if len(monthlyStatsJSON) > 0 {
+		if err := json.Unmarshal(monthlyStatsJSON, &monthlyStats); err != nil {
+			log.Printf("Error parsing monthly stats for category %d: %v", categoryID, err)
+			return err
+		}
+	}
+
+	// Добавляем сумму к соответствующему месяцу
+	month := date.Format("2006-01")
+	monthlyStats[month] += amount
+
+	// Обновляем статистику в базе данных
+	updatedStatsJSON, err := json.Marshal(monthlyStats)
+	if err != nil {
+		log.Printf("Error serializing monthly stats for category %d: %v", categoryID, err)
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, "UPDATE categories SET monthly_stats = $1 WHERE id = $2", updatedStatsJSON, categoryID)
+	if err != nil {
+		log.Printf("Error updating monthly stats for category %d: %v", categoryID, err)
+		return err
+	}
+
+	return nil
+}
+
 func createExpense(c *gin.Context) {
 	var exp Expense
 	if err := c.ShouldBindJSON(&exp); err != nil {
-		c.JSON(http.StatusBadRequest, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
+		respondWithError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -451,21 +562,43 @@ func createExpense(c *gin.Context) {
 		exp.Date = time.Now()
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Начало транзакции
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		respondWithError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Используем отложенный rollback для безопасности
+	// Если транзакция успешно завершится commit, rollback не будет иметь эффекта
+	defer tx.Rollback()
+
+	// Создаем расход
 	var id int
-	err := db.QueryRow("INSERT INTO expenses (category_id, name, amount, date, description) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+	err = tx.QueryRowContext(ctx, "INSERT INTO expenses (category_id, name, amount, date, description) VALUES ($1, $2, $3, $4, $5) RETURNING id",
 		exp.CategoryID, exp.Name, exp.Amount, exp.Date.Format(time.RFC3339), exp.Description).Scan(&id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
+		respondWithError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	exp.ID = id
 
 	// Обновляем месячную статистику для категории
-	updateMonthlyStats(exp.CategoryID, exp.Amount, exp.Date)
+	err = updateMonthlyStatsWithTx(ctx, tx, exp.CategoryID, exp.Amount, exp.Date)
+	if err != nil {
+		respondWithError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Фиксируем транзакцию
+	if err = tx.Commit(); err != nil {
+		respondWithError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	c.JSON(http.StatusCreated, Response{
 		Status:  "success",
@@ -478,43 +611,61 @@ func updateExpense(c *gin.Context) {
 	id := c.Param("id")
 	var exp Expense
 	if err := c.ShouldBindJSON(&exp); err != nil {
-		c.JSON(http.StatusBadRequest, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
+		respondWithError(c, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Начало транзакции
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		respondWithError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	defer tx.Rollback()
 
 	// Получаем текущие данные о расходе для обновления статистики
 	var oldExp Expense
 	var dateStr string
-	err := db.QueryRow("SELECT id, category_id, amount, date FROM expenses WHERE id = $1", id).
+	err = tx.QueryRowContext(ctx, "SELECT id, category_id, amount, date FROM expenses WHERE id = $1", id).
 		Scan(&oldExp.ID, &oldExp.CategoryID, &oldExp.Amount, &dateStr)
 	if err != nil {
-		c.JSON(http.StatusNotFound, Response{
-			Status:  "error",
-			Message: "Expense not found",
-		})
+		respondWithError(c, http.StatusNotFound, "Expense not found")
 		return
 	}
 	oldExp.Date, _ = time.Parse(time.RFC3339, dateStr)
 
 	// Обновляем расход
-	_, err = db.Exec("UPDATE expenses SET category_id = $1, name = $2, amount = $3, date = $4, description = $5 WHERE id = $6",
+	_, err = tx.ExecContext(ctx, "UPDATE expenses SET category_id = $1, name = $2, amount = $3, date = $4, description = $5 WHERE id = $6",
 		exp.CategoryID, exp.Name, exp.Amount, exp.Date.Format(time.RFC3339), exp.Description, id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
+		respondWithError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	// Обновляем месячную статистику для категорий
 	// Вычитаем старую сумму
-	updateMonthlyStats(oldExp.CategoryID, -oldExp.Amount, oldExp.Date)
+	err = updateMonthlyStatsWithTx(ctx, tx, oldExp.CategoryID, -oldExp.Amount, oldExp.Date)
+	if err != nil {
+		respondWithError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	// Добавляем новую сумму
-	updateMonthlyStats(exp.CategoryID, exp.Amount, exp.Date)
+	err = updateMonthlyStatsWithTx(ctx, tx, exp.CategoryID, exp.Amount, exp.Date)
+	if err != nil {
+		respondWithError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Фиксируем транзакцию
+	if err = tx.Commit(); err != nil {
+		respondWithError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	c.JSON(http.StatusOK, Response{
 		Status:  "success",
@@ -526,32 +677,48 @@ func updateExpense(c *gin.Context) {
 func deleteExpense(c *gin.Context) {
 	id := c.Param("id")
 
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Начало транзакции
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		respondWithError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	defer tx.Rollback()
+
 	// Получаем данные о расходе перед удалением для обновления статистики
 	var exp Expense
 	var dateStr string
-	err := db.QueryRow("SELECT id, category_id, amount, date FROM expenses WHERE id = $1", id).
+	err = tx.QueryRowContext(ctx, "SELECT id, category_id, amount, date FROM expenses WHERE id = $1", id).
 		Scan(&exp.ID, &exp.CategoryID, &exp.Amount, &dateStr)
 	if err != nil {
-		c.JSON(http.StatusNotFound, Response{
-			Status:  "error",
-			Message: "Expense not found",
-		})
+		respondWithError(c, http.StatusNotFound, "Expense not found")
 		return
 	}
 	exp.Date, _ = time.Parse(time.RFC3339, dateStr)
 
 	// Удаляем расход
-	_, err = db.Exec("DELETE FROM expenses WHERE id = $1", id)
+	_, err = tx.ExecContext(ctx, "DELETE FROM expenses WHERE id = $1", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
+		respondWithError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	// Обновляем месячную статистику (вычитаем сумму)
-	updateMonthlyStats(exp.CategoryID, -exp.Amount, exp.Date)
+	err = updateMonthlyStatsWithTx(ctx, tx, exp.CategoryID, -exp.Amount, exp.Date)
+	if err != nil {
+		respondWithError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Фиксируем транзакцию
+	if err = tx.Commit(); err != nil {
+		respondWithError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	c.JSON(http.StatusOK, Response{
 		Status:  "success",
@@ -560,15 +727,15 @@ func deleteExpense(c *gin.Context) {
 }
 
 func getStatistics(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	// Получение общей суммы расходов
 	var totalAmount sql.NullFloat64
-	err := db.QueryRow("SELECT SUM(amount) FROM expenses").Scan(&totalAmount)
+	err := db.QueryRowContext(ctx, "SELECT SUM(amount) FROM expenses").Scan(&totalAmount)
 	if err != nil {
 		log.Printf("Error getting total amount: %v", err)
-		c.JSON(http.StatusInternalServerError, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
+		respondWithError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -589,13 +756,10 @@ func getStatistics(c *gin.Context) {
 	}
 
 	var currentMonthAmount sql.NullFloat64
-	err = db.QueryRow("SELECT SUM(amount) FROM expenses WHERE date >= $1 AND date < $2", startOfMonth, endOfMonth).Scan(&currentMonthAmount)
+	err = db.QueryRowContext(ctx, "SELECT SUM(amount) FROM expenses WHERE date >= $1 AND date < $2", startOfMonth, endOfMonth).Scan(&currentMonthAmount)
 	if err != nil {
 		log.Printf("Error getting current month amount: %v", err)
-		c.JSON(http.StatusInternalServerError, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
+		respondWithError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -606,13 +770,10 @@ func getStatistics(c *gin.Context) {
 	}
 
 	// Получение статистики по категориям
-	rows, err := db.Query("SELECT c.id, c.name, c.monthly_stats, SUM(e.amount) FROM categories c LEFT JOIN expenses e ON c.id = e.category_id GROUP BY c.id")
+	rows, err := db.QueryContext(ctx, "SELECT c.id, c.name, c.monthly_stats, SUM(e.amount) FROM categories c LEFT JOIN expenses e ON c.id = e.category_id GROUP BY c.id")
 	if err != nil {
 		log.Printf("Error getting category stats: %v", err)
-		c.JSON(http.StatusInternalServerError, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
+		respondWithError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 	defer rows.Close()
@@ -632,10 +793,7 @@ func getStatistics(c *gin.Context) {
 		err := rows.Scan(&cat.ID, &cat.Name, &monthlyStatsJSON, &totalAmount)
 		if err != nil {
 			log.Printf("Error scanning category stats: %v", err)
-			c.JSON(http.StatusInternalServerError, Response{
-				Status:  "error",
-				Message: err.Error(),
-			})
+			respondWithError(c, http.StatusInternalServerError, err.Error())
 			return
 		}
 
@@ -655,13 +813,10 @@ func getStatistics(c *gin.Context) {
 	}
 
 	// Получение статистики по месяцам (для всех категорий)
-	rows, err = db.Query("SELECT to_char(date, 'YYYY-MM') as month, SUM(amount) FROM expenses GROUP BY month ORDER BY month")
+	rows, err = db.QueryContext(ctx, "SELECT to_char(date, 'YYYY-MM') as month, SUM(amount) FROM expenses GROUP BY month ORDER BY month")
 	if err != nil {
 		log.Printf("Error getting monthly totals: %v", err)
-		c.JSON(http.StatusInternalServerError, Response{
-			Status:  "error",
-			Message: err.Error(),
-		})
+		respondWithError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -672,10 +827,7 @@ func getStatistics(c *gin.Context) {
 		err := rows.Scan(&month, &amount)
 		if err != nil {
 			log.Printf("Error scanning monthly totals: %v", err)
-			c.JSON(http.StatusInternalServerError, Response{
-				Status:  "error",
-				Message: err.Error(),
-			})
+			respondWithError(c, http.StatusInternalServerError, err.Error())
 			return
 		}
 		monthlyTotals[month] = amount
@@ -692,38 +844,4 @@ func getStatistics(c *gin.Context) {
 		Status: "success",
 		Data:   statistics,
 	})
-}
-
-func updateMonthlyStats(categoryID int, amount float64, date time.Time) {
-	// Получаем текущую статистику
-	var monthlyStatsJSON []byte
-	err := db.QueryRow("SELECT monthly_stats FROM categories WHERE id = $1", categoryID).Scan(&monthlyStatsJSON)
-	if err != nil {
-		log.Printf("Error getting monthly stats for category %d: %v", categoryID, err)
-		return
-	}
-
-	monthlyStats := make(map[string]float64)
-	if len(monthlyStatsJSON) > 0 {
-		if err := json.Unmarshal(monthlyStatsJSON, &monthlyStats); err != nil {
-			log.Printf("Error parsing monthly stats for category %d: %v", categoryID, err)
-			return
-		}
-	}
-
-	// Добавляем сумму к соответствующему месяцу
-	month := date.Format("2006-01")
-	monthlyStats[month] += amount
-
-	// Обновляем статистику в базе данных
-	updatedStatsJSON, err := json.Marshal(monthlyStats)
-	if err != nil {
-		log.Printf("Error serializing monthly stats for category %d: %v", categoryID, err)
-		return
-	}
-
-	_, err = db.Exec("UPDATE categories SET monthly_stats = $1 WHERE id = $2", updatedStatsJSON, categoryID)
-	if err != nil {
-		log.Printf("Error updating monthly stats for category %d: %v", categoryID, err)
-	}
 }
